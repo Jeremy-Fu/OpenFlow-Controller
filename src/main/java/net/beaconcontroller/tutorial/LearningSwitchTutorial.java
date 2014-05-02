@@ -39,7 +39,7 @@ public class LearningSwitchTutorial implements IOFMessageListener,
     protected static Logger log = LoggerFactory
             .getLogger(LearningSwitchTutorial.class);
     protected IBeaconProvider beaconProvider;
-    protected Map<IOFSwitch, Map<Long, PortTimestamp>> macTables = new HashMap<IOFSwitch, Map<Long, PortTimestamp>>();
+    protected Map<IOFSwitch, Map<Long,Short>> macTables = new HashMap<IOFSwitch, Map<Long, Short>>();
 
     public Command receive(IOFSwitch sw, OFMessage msg) throws IOException {
         initMACTable(sw);
@@ -109,7 +109,7 @@ public class LearningSwitchTutorial implements IOFMessageListener,
      */
     public void forwardAsLearningSwitch(IOFSwitch sw, OFPacketIn pi)
             throws IOException {
-        Map<Long, PortTimestamp> macTable = macTables.get(sw);
+        Map<Long, Short> macTable = macTables.get(sw);
 
         /**
          * START HERE: You'll find descriptions of what needs to be done below
@@ -133,10 +133,9 @@ public class LearningSwitchTutorial implements IOFMessageListener,
          */
         byte[] macAddress = match.getDataLayerSource();
         long mac_address_key = Ethernet.toLong(macAddress);
-        short srcPort = pi.getInPort();
         Date date= new Date();
         if (!macTable.containsKey(mac_address_key)) {
-            macTable.put(mac_address_key, new PortTimestamp(srcPort,date));
+            macTable.put(mac_address_key, pi.getInPort());
             //log.info("Learned MAC address {} is at port {}",
                    // HexString.toHexString(macAddress), srcPort);
         }
@@ -147,7 +146,7 @@ public class LearningSwitchTutorial implements IOFMessageListener,
          * macTable object.
          */
         byte[] dstMacAddress = match.getDataLayerDestination();
-        PortTimestamp dst = macTable.get(Ethernet.toLong(dstMacAddress));
+        Short outPort = macTable.get(Ethernet.toLong(dstMacAddress));
 
 
         /**
@@ -168,7 +167,7 @@ public class LearningSwitchTutorial implements IOFMessageListener,
          * floods out all ports except the port the packet came in.
          * 
          */
-        if (dst != null) {
+        if (outPort != null) {
             // Phase 1:
             // OFPacketOut po = new OFPacketOut();
             //
@@ -195,7 +194,7 @@ public class LearningSwitchTutorial implements IOFMessageListener,
             OFFlowMod fm = new OFFlowMod();
             
             //Add out port
-            OFAction action = new OFActionOutput(dst.getPort());
+            OFAction action = new OFActionOutput(outPort);
             fm.setActions(Collections.singletonList((OFAction) action));
 
             // Use the Flow ADD command to switch
@@ -241,9 +240,9 @@ public class LearningSwitchTutorial implements IOFMessageListener,
      * @param sw
      */
     private void initMACTable(IOFSwitch sw) {
-        Map<Long, PortTimestamp> macTable = macTables.get(sw);
+        Map<Long, Short> macTable = macTables.get(sw);
         if (macTable == null) {
-            macTable = new HashMap<Long, PortTimestamp>();
+            macTable = new HashMap<Long, Short>();
             macTables.put(sw, macTable);
         }
     }
