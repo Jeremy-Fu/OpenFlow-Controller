@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.Map;
 
 import net.beaconcontroller.core.IBeaconProvider;
@@ -36,10 +37,12 @@ import org.slf4j.LoggerFactory;
 @SuppressWarnings("unused")
 public class LearningSwitchTutorial implements IOFMessageListener,
         IOFSwitchListener {
+    private static final int MAX_FLOW_ENTRIES_PER_PORT) = 1000;
     protected static Logger log = LoggerFactory
             .getLogger(LearningSwitchTutorial.class);
     protected IBeaconProvider beaconProvider;
     protected Map<IOFSwitch, Map<Long,Short>> macTables = new HashMap<IOFSwitch, Map<Long, Short>>();
+    protected Map<Short,LinkedList<OFMatch>> match_track = new HashMap<Short,LinkedList<OFMatch>>();
 
     public Command receive(IOFSwitch sw, OFMessage msg) throws IOException {
         initMACTable(sw);
@@ -135,7 +138,26 @@ public class LearningSwitchTutorial implements IOFMessageListener,
         long mac_address_key = Ethernet.toLong(macAddress);
         Date date= new Date();
         if (!macTable.containsKey(mac_address_key)) {
-            macTable.put(mac_address_key, pi.getInPort());
+            short inPort=pi.getInPort();
+            macTable.put(mac_address_key, inPort);
+            if(match_track.containsKey(inPort))
+            {
+                LinkedList<OFMatch> existingMatchList=match_track.get(inPort);
+                if(existingMatchList.size() < MAX_FLOW_ENTRIES_PER_PORT)
+                {
+                    existingMatchList.offer(match);
+                }
+                else
+                {
+                    //TODO:delete flow entry
+                }
+            }
+            else
+            {
+                LinkedList<OFMatch> newMatchList=new LinkedList<OFMatch>();
+                newMatchList.offer(match);
+                match_track.put(pi.getInPort(),newMatchList);
+            }
             //log.info("Learned MAC address {} is at port {}",
                    // HexString.toHexString(macAddress), srcPort);
         }
