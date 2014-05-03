@@ -6,7 +6,6 @@ package net.beaconcontroller.tutorial;
 
 import java.io.IOException;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
@@ -26,24 +25,24 @@ import org.openflow.protocol.OFPort;
 import org.openflow.protocol.OFType;
 import org.openflow.protocol.action.OFAction;
 import org.openflow.protocol.action.OFActionOutput;
+import org.openflow.util.HexString;
+import org.openflow.util.U16;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Tutorial class used to teach how to build a simple layer 2 learning switch.
- * 
+ *
  * @author David Erickson (daviderickson@cs.stanford.edu) - 10/14/12
  */
 @SuppressWarnings("unused")
-public class LearningSwitchTutorial implements IOFMessageListener,
-        IOFSwitchListener {
-    private static final int MAX_FLOW_ENTRIES_PER_PORT) = 1000;
-    protected static Logger log = LoggerFactory
-            .getLogger(LearningSwitchTutorial.class);
+public class LearningSwitchTutorial implements IOFMessageListener, IOFSwitchListener {
+    protected static Logger log = LoggerFactory.getLogger(LearningSwitchTutorial.class);
     protected IBeaconProvider beaconProvider;
-    protected Map<IOFSwitch, Map<Long,Short>> macTables = new HashMap<IOFSwitch, Map<Long, Short>>();
+    protected Map<IOFSwitch, Map<Long,Short>> macTables =
+        new HashMap<IOFSwitch, Map<Long,Short>>();
+    private static final int MAX_FLOW_ENTRIES_PER_PORT =2;
     protected Map<Short,LinkedList<OFMatch>> match_track = new HashMap<Short,LinkedList<OFMatch>>();
-
     public Command receive(IOFSwitch sw, OFMessage msg) throws IOException {
         initMACTable(sw);
         OFPacketIn pi = (OFPacketIn) msg;
@@ -51,7 +50,7 @@ public class LearningSwitchTutorial implements IOFMessageListener,
         /**
          * This is the basic flood-based forwarding that is enabled.
          */
-        // forwardAsHub(sw, pi);
+        //forwardAsHub(sw, pi);
 
         /**
          * This is the layer 2 based switching you will create. Once you have
@@ -66,19 +65,16 @@ public class LearningSwitchTutorial implements IOFMessageListener,
     /**
      * EXAMPLE CODE: Floods the packet out all switch ports except the port it
      * came in on.
-     * 
-     * @param sw
-     *            the OpenFlow switch object
-     * @param pi
-     *            the OpenFlow Packet In object
+     *
+     * @param sw the OpenFlow switch object
+     * @param pi the OpenFlow Packet In object
      * @throws IOException
      */
     public void forwardAsHub(IOFSwitch sw, OFPacketIn pi) throws IOException {
         // Create the OFPacketOut OpenFlow object
         OFPacketOut po = new OFPacketOut();
 
-        // Create an output action to flood the packet, put it in the
-        // OFPacketOut
+        // Create an output action to flood the packet, put it in the OFPacketOut
         OFAction action = new OFActionOutput(OFPort.OFPP_FLOOD.getValue());
         po.setActions(Collections.singletonList(action));
 
@@ -89,9 +85,9 @@ public class LearningSwitchTutorial implements IOFMessageListener,
         po.setBufferId(pi.getBufferId());
         if (pi.getBufferId() == OFPacketOut.BUFFER_ID_NONE) {
             /**
-             * The packet was NOT buffered at the switch, therefore we must copy
-             * the packet's data from the OFPacketIn to our new OFPacketOut
-             * message.
+             * The packet was NOT buffered at the switch, therefore we must
+             * copy the packet's data from the OFPacketIn to our new
+             * OFPacketOut message.
              */
             po.setPacketData(pi.getPacketData());
         }
@@ -100,156 +96,111 @@ public class LearningSwitchTutorial implements IOFMessageListener,
     }
 
     /**
-     * TODO: Learn the source MAC:port pair for each arriving packet. Next send
-     * the packet out the port previously learned for the destination MAC, if it
-     * exists. Otherwise flood the packet similarly to forwardAsHub.
-     * 
-     * @param sw
-     *            the OpenFlow switch object
-     * @param pi
-     *            the OpenFlow Packet In object
+     * Learn the source MAC:port pair for each arriving packet, and send packets
+     * out the port previously learned for the destination MAC of the packet,
+     * if it exists.  Otherwise flood the packet similarly to forwardAsHub.
+     * @param sw the OpenFlow switch object
+     * @param pi the OpenFlow Packet In object
      * @throws IOException
      */
-    public void forwardAsLearningSwitch(IOFSwitch sw, OFPacketIn pi)
-            throws IOException {
-        Map<Long, Short> macTable = macTables.get(sw);
+    public void forwardAsLearningSwitch(IOFSwitch sw, OFPacketIn pi) throws IOException {
+        Map<Long,Short> macTable = macTables.get(sw);
 
-        /**
-         * START HERE: You'll find descriptions of what needs to be done below
-         * here, and starter pseudo code. Your job is to uncomment and replace
-         * the pseudo code with actual Java code.
-         * 
-         * First build the OFMatch object that will be used to match packets
-         * from this new flow. See the OFMatch and OFPacketIn class Javadocs,
-         * which if you are using the tutorial archive, are in the apidocs
-         * folder where you extracted it.
-         */
-        OFMatch match = new OFMatch();
-        match.loadFromPacket(pi.getPacketData(), pi.getInPort());
-
-        /**
-         * Learn that the host with the source MAC address in this packet is
-         * reachable at the port this packet arrived on. Put this source
-         * MAC:port pair into the macTable object for future lookups. HINT: you
-         * can use Ethernet.toLong to convert from byte[] to Long, which is the
-         * key for the macTable Map object.
-         */
-        byte[] macAddress = match.getDataLayerSource();
-        long mac_address_key = Ethernet.toLong(macAddress);
-        Date date= new Date();
-        if (!macTable.containsKey(mac_address_key)) {
-            short inPort=pi.getInPort();
-            macTable.put(mac_address_key, inPort);
-            if(match_track.containsKey(inPort))
+        // Build the Match
+        OFMatch match = OFMatch.load(pi.getPacketData(), pi.getInPort());
+        
+        // Learn the port to reach the packet's source MAC
+        short inPort = pi.getInPort();
+        macTable.put(Ethernet.toLong(match.getDataLayerSource()), inPort);
+        if(match_track.containsKey(inPort))
+        {
+            LinkedList<OFMatch> existingMatchList=match_track.get(inPort);
+            if(existingMatchList.size() < MAX_FLOW_ENTRIES_PER_PORT)
             {
-                LinkedList<OFMatch> existingMatchList=match_track.get(inPort);
-                if(existingMatchList.size() < MAX_FLOW_ENTRIES_PER_PORT)
-                {
-                    existingMatchList.offer(match);
-                }
-                else
-                {
-                    //TODO:delete flow entry
-                }
+                existingMatchList.offer(match);
             }
             else
             {
-                LinkedList<OFMatch> newMatchList=new LinkedList<OFMatch>();
-                newMatchList.offer(match);
-                match_track.put(pi.getInPort(),newMatchList);
+                 OFMatch obsoleteMatch = existingMatchList.poll().setWildcards(OFMatch.OFPFW_DL_SRC);
+                 OFFlowMod fm = new OFFlowMod();
+                 fm = (OFFlowMod) ((OFFlowMod) sw.getInputStream().getMessageFactory()
+
+                    .getMessage(OFType.FLOW_MOD))
+
+                    .setMatch(obsoleteMatch)
+
+                    .setCommand(OFFlowMod.OFPFC_DELETE_STRICT)
+
+                    .setOutPort(OFPort.OFPP_NONE)
+
+                    .setLength(U16.t(OFFlowMod.MINIMUM_LENGTH));
+
+                sw.getOutputStream().write(fm);
+                existingMatchList.offer(match);
             }
-            //log.info("Learned MAC address {} is at port {}",
-                   // HexString.toHexString(macAddress), srcPort);
+        }
+        else
+        {
+            LinkedList<OFMatch> newMatchList=new LinkedList<OFMatch>();
+            newMatchList.offer(match);
+            match_track.put(pi.getInPort(),newMatchList);
         }
 
-        /**
-         * Retrieve the port this packet should be sent out by getting the port
-         * associated with the destination MAC address in this packet from the
-         * macTable object.
-         */
-        byte[] dstMacAddress = match.getDataLayerDestination();
-        Short outPort = macTable.get(Ethernet.toLong(dstMacAddress));
+        // Retrieve the port previously learned for the packet's dest MAC
+        Short outPort = macTable.get(Ethernet.toLong(match.getDataLayerDestination()));
 
-
-        /**
-         * If the outPort is known for the MAC address (the return value from
-         * macTable is not null), then Phase 1: Create and send an OFPacketOut,
-         * sending it to the outPort learned previously. After this is tested
-         * and works move to phase 2.
-         * 
-         * Phase 2: Instead of an OFPacketOut, create and send an OFFlowMod
-         * using the match created earlier from the packet, and send matched
-         * packets to the outPort. For extra credit, after sending the
-         * OFFlowMod, send an OFPacketOut, but only if the switch did not buffer
-         * the packet (pi.getBufferId() == OFPacketOut.BUFFER_ID_NONE), and be
-         * sure to set the OFPacketOut's data with the data in pi.
-         * 
-         * Else if the outPort is not known (return value from macTable is
-         * null), then use the forwardAsHub method to send an OFPacketOut that
-         * floods out all ports except the port the packet came in.
-         * 
-         */
         if (outPort != null) {
-            // Phase 1:
-            // OFPacketOut po = new OFPacketOut();
-            //
-            // po.setBufferId(pi.getBufferId());
-            //
-            // OFAction action = new OFActionOutput(outPort);
-            // po.setActions(Collections.singletonList(action));
-            //
-            // if (pi.getBufferId() == OFPacketOut.BUFFER_ID_NONE) {
-            // /**
-            // * The packet was NOT buffered at the switch, therefore we must
-            // * copy the packet's data from the OFPacketIn to our new
-            // * OFPacketOut message.
-            // */
-            // po.setPacketData(pi.getPacketData());
-            // }
-            // sw.getOutputStream().write(po);
-            // } else {
-            // forwardAsHub(sw, pi);
-            // }
-
-            // Phase 2:
-            // Instantiate an OFFlowMod
+            // Destination port known, push down a flow
             OFFlowMod fm = new OFFlowMod();
-            
-            //Add out port
-            OFAction action = new OFActionOutput(outPort);
-            fm.setActions(Collections.singletonList((OFAction) action));
-
-            // Use the Flow ADD command to switch
+            fm.setBufferId(pi.getBufferId());
+            // Use the Flow ADD command
             fm.setCommand(OFFlowMod.OFPFC_ADD);
-
             // Time out the flow after 5 seconds if inactivity
-            fm.setIdleTimeout((short) 5);
-
+            fm.setIdleTimeout((short) 500);
             // Match the packet using the match created above
             fm.setMatch(match);
-
-            fm.setBufferId(pi.getBufferId());
-
+            // Send matching packets to outPort
+            OFAction action = new OFActionOutput(outPort);
+            fm.setActions(Collections.singletonList((OFAction)action));
+            // Send this OFFlowMod to the switch
             sw.getOutputStream().write(fm);
+            System.out.println("switch "+inPort+" learned: " + HexString.toHexString(match.getDataLayerSource()));
+  /*          match = new OFMatch().setWildcards(OFMatch.OFPFW_ALL);
 
+            fm = (OFFlowMod) ((OFFlowMod) sw.getInputStream().getMessageFactory()
+
+                .getMessage(OFType.FLOW_MOD))
+
+                .setMatch(match)
+
+                .setCommand(OFFlowMod.OFPFC_DELETE)
+
+                .setOutPort(OFPort.OFPP_NONE)
+
+                .setLength(U16.t(OFFlowMod.MINIMUM_LENGTH));
+
+            sw.getOutputStream().write(fm);*/
+            //----------------------------------------------------------------
             if (pi.getBufferId() == OFPacketOut.BUFFER_ID_NONE) {
                 /**
-                 * The packet was NOT buffered at the switch, therefore we must
-                 * copy the packet's data from the OFPacketIn to our new
-                 * OFPacketOut message.
+                 * EXTRA CREDIT: This is a corner case, the packet was not
+                 * buffered at the switch so it must be sent as an OFPacketOut
+                 * after sending the OFFlowMod
                  */
                 OFPacketOut po = new OFPacketOut();
-
-                po.setBufferId(pi.getBufferId());
-
+                action = new OFActionOutput(outPort);
                 po.setActions(Collections.singletonList(action));
-                
-                //Fill in the data
+                po.setBufferId(OFPacketOut.BUFFER_ID_NONE);
+                po.setInPort(pi.getInPort());
                 po.setPacketData(pi.getPacketData());
                 sw.getOutputStream().write(po);
+                
             }
-
         } else {
+           // System.out.println("Flood packets: (src)" + HexString.toHexString(match.getDataLayerSource()) + "  " + pi.getInPort() +  "\t(dst)" + HexString.toHexString(match.getDataLayerDestination()));
+            
+            
+            // Destination port unknown, flood packet to all ports
             forwardAsHub(sw, pi);
         }
     }
@@ -258,13 +209,12 @@ public class LearningSwitchTutorial implements IOFMessageListener,
 
     /**
      * Ensure there is a MAC to port table per switch
-     * 
      * @param sw
      */
     private void initMACTable(IOFSwitch sw) {
-        Map<Long, Short> macTable = macTables.get(sw);
+        Map<Long,Short> macTable = macTables.get(sw);
         if (macTable == null) {
-            macTable = new HashMap<Long, Short>();
+            macTable = new HashMap<Long,Short>();
             macTables.put(sw, macTable);
         }
     }
@@ -279,8 +229,7 @@ public class LearningSwitchTutorial implements IOFMessageListener,
     }
 
     /**
-     * @param beaconProvider
-     *            the beaconProvider to set
+     * @param beaconProvider the beaconProvider to set
      */
     public void setBeaconProvider(IBeaconProvider beaconProvider) {
         this.beaconProvider = beaconProvider;

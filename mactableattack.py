@@ -30,16 +30,26 @@ def simpleTest():
     h2=net.get('h2')
     print h1.cmd( 'ping -c1', h2.IP() )
     
-    print "Host", h1.name, "has IP address", h1.IP(), "and MAC address", h1.MAC()
-    print "h1 Mac address:\t" + h1.MAC()                                                            
-    #prefix1 = "fa:dd:fd:b8"
+    #print "Host", h1.name, "has IP address", h1.IP(), "and MAC address", h1.MAC()
+    #print "h1 Mac address:\t" + h1.MAC()                                                            
+    mac1 = "fa:dd:fd:b8:bb:aa"
+    mac2 = "fa:dd:fd:b8:aa:bb"
+    mac3 = "fa:dd:fd:b8:aa:cc"
     #for prefix2 in range(255):
-    #    for prefix3 in range(255):
-    #        #print prefix1 + ":" + "%x" % prefix2 + ":" + "%x" % prefix3
-    #        h1.setMAC(prefix1 + ":" + "%x" % prefix2 + ":" + "%x" % prefix3)
-    #        h1.cmd("ping -c1", h2.IP())
-    
-    #CLI( net )                                                                                                            
+     #   for prefix3 in range(255):
+            #print prefix1 + ":" + "%x" % prefix2 + ":" + "%x" % prefix3
+            h1.setMAC(mac1)
+            h1.cmd("ping -c1", h2.IP())
+            h1.setMac(mac2)
+            h1.cmd("ping -c1", h2.IP()) 
+            CLI(net)           
+            h1.setMAC(mac3)
+            h1.cmd("ping -c1", h2.IP())
+            h1.setMAC(mac1)
+            h1.cmd("ping -c1", h2.IP())
+            h1.setMAC(mac3)
+            h1.cmd("ping -c1", h2.IP())   
+    CLI(net)                                                                                                            
     net.stop()  
 
 if __name__ == '__main__':
