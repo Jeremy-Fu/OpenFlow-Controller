@@ -98,7 +98,10 @@ public class LearningSwitchTutorial implements IOFMessageListener, IOFSwitchList
         OFMatch match = OFMatch.load(pi.getPacketData(), pi.getInPort());
         match = match.setWildcards(OFMatch.OFPFW_DL_SRC)
                 .setWildcards(OFMatch.OFPFW_DL_TYPE)
-                .setWildcards(OFMatch.OFPFW_NW_PROTO);
+                .setWildcards(OFMatch.OFPFW_NW_PROTO)
+                .setWildcards(OFMatch.OFPFW_DL_VLAN)
+                .setWildcards(OFMatch.OFPFW_DL_VLAN_PCP)
+                .setWildcards(OFMatch.OFPFW_IN_PORT);
         
         // Learn the port to reach the packet's source MAC
         short inPort = pi.getInPort();
@@ -109,8 +112,8 @@ public class LearningSwitchTutorial implements IOFMessageListener, IOFSwitchList
             LinkedList<OFMatch> newMatchList=new LinkedList<OFMatch>();
             match_track.put(pi.getInPort(),newMatchList);
         }
-        
         LinkedList<OFMatch> existingMatchList = match_track.get(inPort);
+        
         if(existingMatchList.size() < MAX_FLOW_ENTRIES_PER_PORT) {
             existingMatchList.offer(match);
         } else {
