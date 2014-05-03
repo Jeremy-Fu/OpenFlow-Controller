@@ -46,24 +46,12 @@ public class LearningSwitchTutorial implements IOFMessageListener, IOFSwitchList
     public Command receive(IOFSwitch sw, OFMessage msg) throws IOException {
         initMACTable(sw);
         OFPacketIn pi = (OFPacketIn) msg;
-
-        /**
-         * This is the basic flood-based forwarding that is enabled.
-         */
-        //forwardAsHub(sw, pi);
-
-        /**
-         * This is the layer 2 based switching you will create. Once you have
-         * created the appropriate code in the forwardAsLearningSwitch method
-         * (see below), comment out the above call to forwardAsHub, and
-         * uncomment the call here to forwardAsLearningSwitch.
-         */
         forwardAsLearningSwitch(sw, pi);
         return Command.CONTINUE;
     }
 
     /**
-     * EXAMPLE CODE: Floods the packet out all switch ports except the port it
+     * Floods the packet out all switch ports except the port it
      * came in on.
      *
      * @param sw the OpenFlow switch object
@@ -108,42 +96,36 @@ public class LearningSwitchTutorial implements IOFMessageListener, IOFSwitchList
 
         // Build the Match
         OFMatch match = OFMatch.load(pi.getPacketData(), pi.getInPort());
+        match = match.setWildcards(OFMatch.OFPFW_DL_SRC)
+                .setWildcards(OFMatch.OFPFW_DL_TYPE)
+                .setWildcards(OFMatch.OFPFW_NW_PROTO);
         
         // Learn the port to reach the packet's source MAC
         short inPort = pi.getInPort();
         macTable.put(Ethernet.toLong(match.getDataLayerSource()), inPort);
-        if(match_track.containsKey(inPort))
-        {
-            LinkedList<OFMatch> existingMatchList=match_track.get(inPort);
-            if(existingMatchList.size() < MAX_FLOW_ENTRIES_PER_PORT)
-            {
-                existingMatchList.offer(match);
-            }
-            else
-            {
-                 OFMatch obsoleteMatch = existingMatchList.poll().setWildcards(OFMatch.OFPFW_DL_SRC);
-                 OFFlowMod fm = new OFFlowMod();
-                 fm = (OFFlowMod) ((OFFlowMod) sw.getInputStream().getMessageFactory()
-
-                    .getMessage(OFType.FLOW_MOD))
-
-                    .setMatch(obsoleteMatch)
-
-                    .setCommand(OFFlowMod.OFPFC_DELETE_STRICT)
-
-                    .setOutPort(OFPort.OFPP_NONE)
-
-                    .setLength(U16.t(OFFlowMod.MINIMUM_LENGTH));
-
-                sw.getOutputStream().write(fm);
-                existingMatchList.offer(match);
-            }
-        }
-        else
-        {
+        
+        // match_track is HashTable<inPort, List<MacAddress>>
+        if(!match_track.containsKey(inPort)) {   
             LinkedList<OFMatch> newMatchList=new LinkedList<OFMatch>();
-            newMatchList.offer(match);
             match_track.put(pi.getInPort(),newMatchList);
+        }
+        
+        LinkedList<OFMatch> existingMatchList = match_track.get(inPort);
+        if(existingMatchList.size() < MAX_FLOW_ENTRIES_PER_PORT) {
+            existingMatchList.offer(match);
+        } else {
+            // remove the oldest one, add new one to the List
+            OFMatch obsoleteMatch = existingMatchList.poll();
+            existingMatchList.offer(match);
+            //Send the remove action to switch
+            OFFlowMod deletedFm = new OFFlowMod();
+            deletedFm = (OFFlowMod) ((OFFlowMod) sw.getInputStream().getMessageFactory()
+                    .getMessage(OFType.FLOW_MOD))
+                    .setMatch(obsoleteMatch)
+                    .setCommand(OFFlowMod.OFPFC_DELETE_STRICT)
+                    .setOutPort(OFPort.OFPP_NONE)
+                    .setLength(U16.t(OFFlowMod.MINIMUM_LENGTH));
+            sw.getOutputStream().write(deletedFm);  
         }
 
         // Retrieve the port previously learned for the packet's dest MAC
@@ -151,19 +133,19 @@ public class LearningSwitchTutorial implements IOFMessageListener, IOFSwitchList
 
         if (outPort != null) {
             // Destination port known, push down a flow
-            OFFlowMod fm = new OFFlowMod();
-            fm.setBufferId(pi.getBufferId());
+            OFFlowMod addedFm = new OFFlowMod();
+            addedFm.setBufferId(pi.getBufferId());
             // Use the Flow ADD command
-            fm.setCommand(OFFlowMod.OFPFC_ADD);
+            addedFm.setCommand(OFFlowMod.OFPFC_ADD);
             // Time out the flow after 5 seconds if inactivity
-            fm.setIdleTimeout((short) 500);
+            addedFm.setIdleTimeout((short) 500);
             // Match the packet using the match created above
-            fm.setMatch(match);
+            addedFm.setMatch(match);
             // Send matching packets to outPort
             OFAction action = new OFActionOutput(outPort);
-            fm.setActions(Collections.singletonList((OFAction)action));
+            addedFm.setActions(Collections.singletonList((OFAction)action));
             // Send this OFFlowMod to the switch
-            sw.getOutputStream().write(fm);
+            sw.getOutputStream().write(addedFm);
             System.out.println("switch "+inPort+" learned: " + HexString.toHexString(match.getDataLayerSource()));
   /*          match = new OFMatch().setWildcards(OFMatch.OFPFW_ALL);
 
@@ -197,9 +179,6 @@ public class LearningSwitchTutorial implements IOFMessageListener, IOFSwitchList
                 
             }
         } else {
-           // System.out.println("Flood packets: (src)" + HexString.toHexString(match.getDataLayerSource()) + "  " + pi.getInPort() +  "\t(dst)" + HexString.toHexString(match.getDataLayerDestination()));
-            
-            
             // Destination port unknown, flood packet to all ports
             forwardAsHub(sw, pi);
         }
